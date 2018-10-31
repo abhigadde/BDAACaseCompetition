@@ -1,0 +1,223 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+This is an R notebook, which functions similarily to Jupyter Notebooks. For the analysts at your company, this will be a nice step by step process of what I did with code and output provided to make it very easy to reproduce my results
+
+So first, I want to create a single data set combining the 4 excel sheets that were given to me
+```{r message=FALSE}
+options(warn=-1)
+
+rm(list=ls())
+
+library(mgcv)
+library(tidyverse)
+setwd('C:/Users/nikhi/Desktop/BDAA case competition')
+
+#first goal: create one big complete dataset to do EDA on. So don't have to deal with pesky consumer ID etc.
+
+regionalManagers=read.csv("regionalManagers.csv", header = TRUE)
+Orders = read.csv("orders.csv", header = TRUE)
+customers = read.csv("customers.csv", header = TRUE)
+products = read.csv("product.csv", header = TRUE)
+
+
+#Used manual processes to combine all of these into 1 dataset. So want to create combined file now and save to access later
+
+customerOrder <- merge(customers, Orders, by=c("CustomerID"))
+
+customerOrderProduct <- merge(customerOrder, products, "ProductID")
+
+customerOrderProductRegionalManagers <- merge(customerOrderProduct, regionalManagers, "Region")
+
+finalData = customerOrderProductRegionalManagers
+```
+Now what I need to do is factorize all my qualitative variables so I can see any relationships that exist within them
+```{r message=FALSE}
+attach(finalData)
+cols <- c("Region", "Province", "Customer.Segment", "Order.Priority","Ship.Mode","Product.Category","Product.Container","Product.Sub.Category","Regional.Manager")
+finalData[,cols] <- lapply(finalData[,cols], factor)
+```
+
+Here I will create any new variables by combining old variables to help my analysis. For example, the Profit variable I create is the total profit we make of each order. I feel that this is a better variable to compare with than Price because a pricier item will cost more to make. Also Profit factors in any discounts we allowed.
+
+```{r message=FALSE}
+attach(finalData)
+finalData$Unit.Profit = (Unit.Price*(1-Discount)-Unit.Cost)
+finalData$Profit = Order.Quantity*(Unit.Price*(1-Discount)-Unit.Cost)
+finalData$timeLeft = as.numeric(as.Date(Due.Date,"%m/%d/%Y")-as.Date(Ship.Date,"%m/%d/%Y"))
+```
+
+
+Now I will answer each of the questions in the word document to the best of my ability and then explore any other interesting questions I want to explore myself. Essentially this will be an EDA of all the data.
+
+*Note: when using lm(), typically, one variable is chosen as the base and the other values spring off of that base. Typically, the greater the amount of data values in the base, the more stable the linear regression is. Therefore, we will be releveling some columns for this to occur because at the moment R uses the first alphabetically as the base.
+
+1. Which customers are generating the most revenue? Which customers are generating the most profit? Which customer segments or regions are seeing the most growth?
+
+Most large retailers do not define their growth areas just by looking at the few customers that spend the most. They look at the customer population as a whole. Therefore, I will not bother myself with which customers are generating the most revenue because they are few and thus going to be very difficult to draw any meaningful conclusion from. 
+
+
+However, let's look at which customer segments are doing the best.So first, lets see the distribution of customer segments
+
+```{r message=FALSE}
+
+ggplot(data = finalData) +
+  geom_bar(mapping = aes(x = Customer.Segment))
+
+```
+
+Now lets take a look at how customer segment relates to profit
+```{r}
+ggplot(data = finalData, mapping = aes(x = Customer.Segment, y = Profit)) +
+  geom_boxplot()
+```
+As you can see, there are a few customers that really buy a lot in each segment! Lets get rid of some of those really high values to see a better image
+
+```{r message=FALSE}
+ggplot(data = finalData, mapping = aes(x = Customer.Segment, y = Profit)) +
+  geom_boxplot()+coord_cartesian(ylim=c(0, 1000))
+```
+Ah, thats better. From a quick glance, not much looks different between these segments.
+
+Now lets run a simple linear regression
+
+```{r message=FALSE}
+attach(finalData)
+customerSegment = lm(Profit~Customer.Segment)
+summary(customerSegment)
+
+
+
+
+```
+
+
+As expected, customer segment has no direct correlation with Profit.
+
+2. Which products are generating the most revenue? Which products are generating the most profit? Which product groups are seeing the most growth?
+
+For this lets look at the Product segments
+
+```{r message=FALSE}
+ggplot(data = finalData, mapping = aes(x = Product.Category, y = Profit)) +
+  geom_boxplot()+coord_cartesian(ylim=c(0, 2000))
+```
+
+
+```{r message=FALSE}
+attach(finalData)
+productSegmentAnalysis = lm(Profit~Product.Category)
+summary(productSegmentAnalysis)
+```
+
+As you can see with this, Office supplies are doing much worse than the other groups. Now lets look into product groups.
+
+```{r message=FALSE}
+q = ggplot(data = finalData, mapping = aes(x = Product.Sub.Category, y = Profit)) +
+  geom_boxplot()+coord_cartesian(ylim=c(0, 2000))
+
+q + theme(axis.text.x=element_text(angle = -90, hjust = 0))
+```
+Now this is good stuff! Lets do a linear regression
+
+```{r message=FALSE}
+attach(finalData)
+subProductSegmentAnalysis = lm(Profit~Product.Sub.Category)
+summary(subProductSegmentAnalysis)
+```
+Great stuff. Looking at this and the graph above gives a great picture into what products we should invest to in the future. This is elaborated more in the write up.
+
+
+3. Which regional managers are doing the best job growing their accounts?
+
+For this we need to take a look at the region and province variables
+
+```{r message=FALSE}
+q = ggplot(data = finalData, mapping = aes(x = Region, y = Profit)) +
+  geom_boxplot()+coord_cartesian(ylim=c(0, 1000))
+
+q = q + theme(axis.text.x=element_text(angle = -90, hjust = 0))
+
+ggsave(filename="myPlot.pdf", plot=q)
+
+
+```
+
+And now lets look at Province
+
+```{r message=FALSE}
+q = ggplot(data = finalData, mapping = aes(x = Province, y = Profit)) +
+  geom_boxplot()+coord_cartesian(ylim=c(0, 1000))
+
+q + theme(axis.text.x=element_text(angle = -90, hjust = 0))
+```
+Notice I limited the ranges of my box plot. This is to actually see the bulk of the data, which is our main point of interest. Note that I use all the data and just zoom in on the graph.
+
+Now lets run a simple linear regression
+
+```{r message=FALSE}
+attach(finalData)
+regionSegment = lm(Profit~Region)
+summary(regionSegment)
+
+attach(finalData)
+provinceSegment = lm(Profit~Province)
+summary(provinceSegment)
+
+
+```
+Notice we have some concrete relationships here. Such as the Prarie region is consistently performing poorer than the other regions. Or that 5 provinces are performing poorer than the base line. These are things to investigate further into. Region: Prarie. 
+
+Provinces: Ontario, British Columbia, New Brunswick, Newfoundland, Saskachewan. Wierd how Ontario is not a significant region but is a significant Province. Wierd how although Prarie is significant, only one of two regions, Saskachewan, is significant.
+
+4. What is our on-time delivery performance? Is it improving over time? Which customers have the best or worst on time delivery scores? Are we making sure our best customers have a high on time delivery?
+
+We don't actually have date a product arrived. Here we are making a few assumptions. First is that all products ship from a central location that is unknown. Second, due date is when it should arrive.
+
+We will use ship date as a proxy for arrival time even though this will essentially be flawed because different location and shipping times will result in different ship arrivals. Lets take a look at how this new variable I created (timeLeft = Due date - Ship date) with respect to shipping type, location, order priority and profit
+
+```{r message=FALSE}
+mean(timeLeft[Ship.Mode=='Regular Air'])
+mean(timeLeft[Ship.Mode=='Express Air'])
+mean(timeLeft[Ship.Mode=='Delivery Truck'])
+
+attach(finalData)
+shipSegment = lm(timeLeft~Ship.Mode)
+summary(shipSegment)
+
+locationSegment = lm(timeLeft~Region)
+summary(locationSegment)
+
+prioritySegment = lm(timeLeft~Order.Priority)
+summary(prioritySegment)
+
+profitSegment = lm(timeLeft~Profit)
+summary(profitSegment)
+```
+So as you can see, although the means of time left on different ship modes do differ, it is not statistically significant. Nothing we compared it to had any statistical significance. Note though, that as order priority increased, the timeLeft estimate also did increase. Although not statistically significant, this is what we want to see.
+
+5. LASTLY, lets look at discounts, how it affects prices and if we would encourage any pricing changes in the future.
+
+
+```{r message=FALSE}
+plot(Discount, Profit)
+
+```
+
+```{r message=FALSE}
+attach(finalData)
+discountSegment = lm(Profit~Discount)
+summary(discountSegment)
+
+orderSegment = lm(Order.Quantity~Discount)
+summary(orderSegment)
+
+unitProfitSegment = lm(Unit.Profit~Discount)
+summary(unitProfitSegment)
+```
+As expected, increasing discount decreases profit.
